@@ -53,7 +53,7 @@ Google Apps Script + Google Sheets 當後端。
 5. **部署**：「部署 → 新增部署作業 → 網頁應用程式」，執行身分「我」、存取權「任何人」，複製網址。
 6. **前端**：在 GitHub repo 的 Settings → Secrets and variables → Actions 設定
    `REACT_APP_GAS_URL`、`REACT_APP_WRITE_TOKEN`；Settings → Pages 的 Source 選「GitHub Actions」。
-   push 到 `main` 就會自動測試、建置並部署到 https://jamy84464.github.io/hey-partner
+   push 到 `main` 就會自動測試、建置並部署到 https://jamy844bot.github.io/hey-partner
 7. 打開網站 → ⚙️ 後台登入 → 設定通知信箱。
 
 修改 `gas/Code.gs` 後，要到「部署 → 管理部署作業」部署新版本才會生效。
