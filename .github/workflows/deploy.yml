@@ -27,6 +27,20 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - name: Check secrets
+        env:
+          GAS_URL: ${{ secrets.REACT_APP_GAS_URL }}
+          WRITE_TOKEN: ${{ secrets.REACT_APP_WRITE_TOKEN }}
+        run: |
+          if ! printf '%s' "$GAS_URL" | grep -Eq '^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$'; then
+            echo "::error::REACT_APP_GAS_URL 格式不對：必須是 https://script.google.com/macros/s/…/exec（前後不能有空白，不要加 ?action=）"
+            exit 1
+          fi
+          if [ -z "$WRITE_TOKEN" ]; then
+            echo "::error::REACT_APP_WRITE_TOKEN 沒有設定"
+            exit 1
+          fi
+          echo "Secrets 格式正確"
       - run: npm ci --legacy-peer-deps
       - name: Lint
         run: npx eslint src/ --max-warnings 0
