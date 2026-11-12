@@ -28,7 +28,7 @@
  * 所有需要密碼／查詢碼的動作都走 POST，避免機密出現在網址與瀏覽紀錄裡。
  */
 const SPREADSHEET_ID = "請填入你的試算表 ID";
-const SITE_URL = "https://jamy844bot.github.io/hey-partner/";
+const SITE_URL = "https://jamy84464.github.io/hey-partner/";
 
 const DATA_SHEET = "feedback_data";   // 機器用：每列一則回饋（id / 查詢碼雜湊 / 建立時間 / JSON）
 const VIEW_SHEET = "回饋總表";         // 人看的鏡像表，每次寫入後重建
