@@ -449,8 +449,17 @@ function adminSetConfig(p) {
 }
 
 // ─── Email ─────────────────────────────────────────────────────────────────
+// GmailApp 會把 emoji 這類「超出基本字元集」的字（JavaScript 裡是兩個 surrogate）
+// 拆壞成 ����，所以寄出前一律轉成 HTML 數字實體（例如 🔄 → &#128260;）。
+// 同仁寫進內容的 emoji 也一起處理。
+function emojiSafe(html) {
+  return String(html).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function (pair) {
+    return "&#" + pair.codePointAt(0) + ";";
+  });
+}
+
 function emailWrap(title, content) {
-  return '<!DOCTYPE html><html><head><meta charset="utf-8"></head>' +
+  return emojiSafe('<!DOCTYPE html><html><head><meta charset="utf-8"></head>' +
     '<body style="margin:0;padding:0;background:#f6f3ee;font-family:\'Helvetica Neue\',Arial,\'Noto Sans TC\',sans-serif;color:#1f2933">' +
     '<div style="max-width:560px;margin:0 auto;padding:24px 16px">' +
     '<div style="background:#2f5d62;color:#fff;padding:18px 24px;border-radius:14px 14px 0 0;text-align:center">' +
@@ -458,7 +467,7 @@ function emailWrap(title, content) {
     '<div style="font-size:12px;opacity:.75;margin-top:4px">' + esc(title) + '</div></div>' +
     '<div style="background:#fff;padding:24px;border-radius:0 0 14px 14px;border:1px solid #e7e1d7;border-top:none">' + content + '</div>' +
     '<div style="text-align:center;padding:16px 0;font-size:11px;color:#9aa1a9">本信件由系統自動寄出</div>' +
-    '</div></body></html>';
+    '</div></body></html>');
 }
 
 // 新回饋通知管理員；面談需求或「受不了」類別在主旨標記
@@ -511,6 +520,13 @@ function sendUpdateEmail(fb) {
 var VIEW_HEADERS = ["編號", "建立時間", "類別", "內容", "希望回應", "面談對象", "稱呼", "聯絡方式",
   "處理狀態", "標籤", "涉及對象", "給同仁的回覆", "內部備註", "已結案", "最後更新"];
 
+// 防止公式注入：同仁輸入的文字如果以 = + - @ 開頭，寫進試算表時會被當成公式執行
+// （例如 =IMPORTXML(...) 可以把其他列的資料送到外部網站）。前面加一個 ' 讓它變成純文字。
+function cellSafe(v) {
+  var s = String(v == null ? "" : v);
+  return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+}
+
 function rebuildView() {
   try {
     var list = allRows().map(parseRow).filter(Boolean);
@@ -520,7 +536,8 @@ function rebuildView() {
       return [fb.id, fb.createdAt, cat.label, fb.content, RESPONDS[fb.respond] || fb.respond, fb.meetWith || "",
         fb.name || "（匿名）", fb.contact || "", STATUSES[fb.status] || fb.status,
         (fb.tags || []).map(function (t) { return "#" + t; }).join(" "),
-        (fb.subjects || []).join("、"), fb.reply || "", fb.note || "", fb.archived ? "是" : "", fb.updatedAt || ""];
+        (fb.subjects || []).join("、"), fb.reply || "", fb.note || "", fb.archived ? "是" : "", fb.updatedAt || ""]
+        .map(cellSafe);
     });
     var sheet = getOrCreate(VIEW_SHEET);
     sheet.clearContents();
@@ -542,7 +559,8 @@ function checkSetup() {
   ["WRITE_TOKEN", "TEAM_CODE", "ADMIN_PW"].forEach(function (k) {
     var v = prop(k);
     Logger.log(k + "：" + (v ? "已設定（" + v.length + " 字元）" : "❌ 未設定") +
-      (k === "ADMIN_PW" && v && v.length < 12 ? " ⚠️ 建議 12 字元以上" : ""));
+      (k === "ADMIN_PW" && v && v.length < 12 ? " ⚠️ 建議 12 字元以上" : "") +
+      (k === "TEAM_CODE" && v && v.length < 8 ? " ⚠️ 太短容易被猜中，建議 8 字元以上（可用一句好記的話）" : ""));
   });
   try {
     var c = getConfig();
