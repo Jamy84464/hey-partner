@@ -1,13 +1,36 @@
 import type { Feedback, CategoryKey, StatusKey, RespondKey } from "../types";
 
-/** 查詢碼格式化：去掉非英數、轉大寫，滿 12 碼時補上分隔線 */
-export function formatCode(raw: string): string {
-  const s = raw.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 12);
-  return s.match(/.{1,4}/g)?.join("-") ?? "";
+/** 查詢碼標準形式（與 gas/Code.gs canonCode 一致）：全形轉半形、去掉空白與 - _、英文不分大小寫 */
+export function canonCode(raw: string): string {
+  return (raw || "").normalize("NFKC").replace(/[\s\-_]/g, "").toUpperCase();
 }
 
-export function isCompleteCode(code: string): boolean {
-  return /^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(code);
+const WEAK_CODES = ["PASSWORD", "PASSWORD1", "12345678", "123456789", "1234567890", "87654321", "11111111",
+  "00000000", "QWERTYUI", "QWERTYUIOP", "ASDFGHJK", "ABCDEFGH", "ILOVEYOU", "HEYPARTNER", "HEY夥伴請聽我說"];
+
+function isSequential(c: string): boolean {
+  if (c.length < 4) return false;
+  let up = true, down = true;
+  for (let i = 1; i < c.length; i++) {
+    const d = c.charCodeAt(i) - c.charCodeAt(i - 1);
+    if (d !== 1) up = false;
+    if (d !== -1) down = false;
+  }
+  return up || down;
+}
+
+/**
+ * 檢查個人查詢碼（與 gas/Code.gs checkMyCode 一致），回傳錯誤代碼；沒問題回傳 ""。
+ * 同一組碼會看到所有用它送出的回饋，跟別人取到一樣就會互相看到，所以不能太好猜。
+ */
+export function checkMyCode(raw: string, teamCode = ""): string {
+  const c = canonCode(raw);
+  if (c.length < 8) return "code_too_short";
+  if (c.length > 40) return "code_too_long";
+  if (/^(.)\1+$/.test(c) || isSequential(c) || WEAK_CODES.includes(c)) return "code_weak";
+  if (/^\d+$/.test(c) && c.length < 10) return "code_digits";
+  if (teamCode && canonCode(teamCode) === c) return "code_is_team";
+  return "";
 }
 
 export function isEmail(v: string): boolean {

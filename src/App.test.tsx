@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import App from "./App";
-import { formatCode, isCompleteCode, buildInsights, monthOf } from "./utils/helpers";
+import { canonCode, checkMyCode, buildInsights, monthOf } from "./utils/helpers";
 import { submitFeedback, lookupFeedback } from "./utils/api";
 import { adminUpdate } from "./utils/storage";
 import type { Feedback } from "./types";
@@ -37,11 +37,20 @@ const fb = (over: Partial<Feedback> = {}): Feedback => ({
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 describe("helpers", () => {
-  test("formatCode 正規化查詢碼", () => {
-    expect(formatCode("abcd2345wxyz")).toBe("ABCD-2345-WXYZ");
-    expect(formatCode("ab cd-23")).toBe("ABCD-23");
-    expect(isCompleteCode("ABCD-2345-WXYZ")).toBe(true);
-    expect(isCompleteCode("ABCD-2345")).toBe(false);
+  test("canonCode：全形轉半形、去空白與 -、不分大小寫", () => {
+    expect(canonCode("abcd-2345-wxyz")).toBe("ABCD2345WXYZ");
+    expect(canonCode(" ＡＢｃ 我的 碼 ")).toBe("ABC我的碼");
+  });
+
+  test("checkMyCode 擋掉太好猜的個人查詢碼", () => {
+    expect(checkMyCode("短短的")).toBe("code_too_short");
+    expect(checkMyCode("aaaaaaaa")).toBe("code_weak");
+    expect(checkMyCode("12345678")).toBe("code_weak");
+    expect(checkMyCode("abcdefgh")).toBe("code_weak");
+    expect(checkMyCode("19900101")).toBe("code_digits");
+    expect(checkMyCode("大研夥伴二零二六加油", "大研夥伴 二零二六加油")).toBe("code_is_team");
+    expect(checkMyCode("週五的拿鐵要加燕麥奶")).toBe("");
+    expect(checkMyCode("blue-ocean-42")).toBe("");
   });
 
   test("monthOf 解析台灣時間字串", () => {
@@ -79,6 +88,7 @@ describe("api", () => {
     expect(p.get("teamCode")).toBe("secret");
     expect(p.get("submissionId")).toBe("sid1");
     expect(p.has("sid")).toBe(false); // Apps Script 保留字
+    expect(p.has("myCode")).toBe(false); // 沒填個人查詢碼就不送
     expect(JSON.parse(p.get("data")!)).toMatchObject({ category: "env" });
   });
 
@@ -94,15 +104,22 @@ describe("api", () => {
       if (action === "submitFeedback") return "network";
       if (action === "checkSubmission") return ++n < 2 ? { success: false, error: "not_found" } : { success: true, code: "QQQQ-2345-WXYZ" };
     };
-    const r = await submitFeedback(input, "x", "sid3", 0);
+    const r = await submitFeedback(input, "x", "sid3", "", 0);
     expect(r).toEqual({ status: "ok", code: "QQQQ-2345-WXYZ" });
     expect(calls.filter(c => c.action === "submitFeedback")).toHaveLength(1);
   });
 
-  test("查詢碼走 POST，不出現在網址", async () => {
+  test("個人查詢碼一起送出", async () => {
+    handler = () => ({ success: true, code: "週五的拿鐵要加燕麥奶" });
+    const r = await submitFeedback(input, "secret", "sid4", " 週五的拿鐵要加燕麥奶 ");
+    expect(r).toEqual({ status: "ok", code: "週五的拿鐵要加燕麥奶" });
+    expect(calls[0].params.get("myCode")).toBe("週五的拿鐵要加燕麥奶");
+  });
+
+  test("查詢碼走 POST，不出現在網址；舊版後端回傳單一物件也轉成陣列", async () => {
     handler = () => ({ success: true, value: fb() });
     const r = await lookupFeedback("ABCD-2345-WXYZ");
-    expect(r.ok).toBe(true);
+    expect(r).toMatchObject({ ok: true, value: [{ id: "FB261112-AAAAA" }] });
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
     expect(String(url)).not.toMatch(/ABCD/);
     expect(init.method).toBe("POST");
@@ -168,11 +185,52 @@ describe("前台", () => {
       : { success: true, value: { isOpen: true, bulletin: "" } };
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /查進度/ }));
-    fireEvent.change(screen.getByLabelText("查詢碼"), { target: { value: "abcd2345wxyz" } });
+    fireEvent.change(screen.getByLabelText("查詢碼"), { target: { value: " ABCD-2345-WXYZ " } });
     fireEvent.click(screen.getByRole("button", { name: "查詢" }));
     expect(await screen.findByText("有難度！燒腦中，請給我們多一些時間努力")).toBeInTheDocument();
     expect(screen.getByText("我們正在研究新的請款系統")).toBeInTheDocument();
     expect(calls.find(c => c.action === "lookupFeedback")!.params.get("code")).toBe("ABCD-2345-WXYZ");
+  });
+
+  test("個人查詢碼：送出時沿用並記住，查進度自動帶入並列出所有回饋", async () => {
+    handler = (action) => {
+      if (action === "submitFeedback") return { success: true, code: "週五的拿鐵要加燕麥奶" };
+      if (action === "lookupFeedback") return { success: true, value: [
+        fb({ id: "A", content: "第一則：影印機卡紙", category: "env", status: "action" }),
+        fb({ id: "B", content: "第二則：請款流程太長", status: "seeded", reply: "已排入下季改善" }),
+      ] };
+      return { success: true, value: { isOpen: true, bulletin: "" } };
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("radio", { name: /工作環境更舒適/ }));
+    fireEvent.change(screen.getByLabelText("回饋內容"), { target: { value: "影印機常常卡紙" } });
+    fireEvent.click(screen.getByRole("radio", { name: /讓我知道你有收到就好了/ }));
+    fireEvent.change(screen.getByLabelText("我的個人查詢碼（選填）"), { target: { value: "週五的拿鐵要加燕麥奶" } });
+    fireEvent.change(screen.getByPlaceholderText("問問主管或 HR"), { target: { value: "team-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: /送出/ }));
+    expect(await screen.findByText("你的個人查詢碼")).toBeInTheDocument();
+    expect(calls.find(c => c.action === "submitFeedback")!.params.get("myCode")).toBe("週五的拿鐵要加燕麥奶");
+    expect(localStorage.getItem("hp_my_code")).toBe("週五的拿鐵要加燕麥奶");
+
+    fireEvent.click(screen.getByRole("button", { name: "查看處理進度" }));
+    expect(await screen.findByText(/這組查詢碼共有 2 則回饋/)).toBeInTheDocument();
+    expect(screen.getByText("第二則：請款流程太長")).toBeInTheDocument();
+    // 第一則預設展開
+    expect(screen.getByText("即刻啟動處理")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("第二則：請款流程太長"));
+    expect(await screen.findByText("已排入下季改善")).toBeInTheDocument();
+  });
+
+  test("太好猜的個人查詢碼在送出前就被擋下", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("radio", { name: /工作環境更舒適/ }));
+    fireEvent.change(screen.getByLabelText("回饋內容"), { target: { value: "影印機常常卡紙" } });
+    fireEvent.click(screen.getByRole("radio", { name: /讓我知道你有收到就好了/ }));
+    fireEvent.change(screen.getByLabelText("我的個人查詢碼（選填）"), { target: { value: "12345678" } });
+    fireEvent.change(screen.getByPlaceholderText("問問主管或 HR"), { target: { value: "team" } });
+    fireEvent.click(screen.getByRole("button", { name: /送出/ }));
+    expect((await screen.findAllByText(/太好猜了/)).length).toBeGreaterThan(0);
+    expect(calls.some(c => c.action === "submitFeedback")).toBe(false);
   });
 });
 

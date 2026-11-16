@@ -40,3 +40,4 @@ gas/Code.gs               # 後端，需手動貼到 Apps Script 並部署新版
 - 類別、回應、狀態的 key 與標籤要同時改 `src/constants.ts` 與 `gas/Code.gs`
 - 送給同仁看的資料一律經過 GAS `publicView()`，不可包含標籤、涉及對象、內部備註、聯絡資料
 - 參數名稱不可用 `sid`、`c`（Apps Script 保留字）
+- 查詢碼一律先 `canonCode()`（全形轉半形、去空白與 - _、大寫）再雜湊；個人查詢碼強度規則 `checkMyCode()` 前後端（`helpers.ts`／`Code.gs`）要一致

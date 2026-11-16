@@ -13,9 +13,11 @@
  * 公開（任何人）：
  *   GET  getPublicConfig   讀「是否開放」與前台公告（不含通知信箱）
  * 同仁（WRITE_TOKEN + TEAM_CODE）：
- *   POST submitFeedback    新增一則回饋；伺服器產生查詢碼，只回傳給送出的人一次
+ *   POST submitFeedback    新增一則回饋；可帶同仁自己取的個人查詢碼（myCode，可重複使用），
+ *                          沒帶就由伺服器產生一組，只回傳給送出的人一次
  * 持有查詢碼的人（WRITE_TOKEN + 查詢碼）：
- *   POST lookupFeedback    看自己那則回饋的處理狀態與回覆（不含標籤、內部備註）
+ *   POST lookupFeedback    用查詢碼看自己的回饋（個人查詢碼會列出所有用它送出的回饋）；
+ *                          只有內容、狀態與對外回覆，不含標籤、內部備註
  *   POST checkSubmission   送出後收不到回應時，用 submissionId 取回查詢碼（10 分鐘內有效）
  * 管理員（ADMIN_PW，錯 10 次鎖 15 分鐘）：
  *   POST verifyAdmin / adminList / adminUpdate / adminDelete / adminGetConfig / adminSetConfig
@@ -137,10 +139,44 @@ function newCode() {
   for (var i = 0; i < 12; i++) out += CODE_ALPHABET.charAt((bytes[i] & 0xff) % CODE_ALPHABET.length);
   return out.slice(0, 4) + "-" + out.slice(4, 8) + "-" + out.slice(8, 12);
 }
-function normCode(v) {
-  var s = String(v || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
-  if (s.length !== 12) return "";
-  return s.slice(0, 4) + "-" + s.slice(4, 8) + "-" + s.slice(8, 12);
+// 查詢碼的標準形式：全形轉半形、去掉空白與 - _、英文不分大小寫
+// 系統產生的 ABCD-2345-WXYZ 和同仁自己取的個人查詢碼都用同一套規則
+function canonCode(v) {
+  return String(v == null ? "" : v).normalize("NFKC").replace(/[\s\-_]/g, "").toUpperCase();
+}
+// 一組查詢碼可能對應的雜湊：新版存 sha256(標準形式)；
+// 舊版（自訂查詢碼上線前）存 sha256("ABCD-2345-WXYZ")，查詢時一併比對
+function codeHashes(v) {
+  var c = canonCode(v);
+  if (!c) return [];
+  var out = [sha256(c)];
+  if (/^[0-9A-Z]{12}$/.test(c)) out.push(sha256(c.slice(0, 4) + "-" + c.slice(4, 8) + "-" + c.slice(8, 12)));
+  return out;
+}
+
+// 個人查詢碼規則（與前端 helpers.ts checkMyCode 一致）：
+// 同一組碼會看到所有用它送出的回饋，跟別人取到一樣就會互相看到，所以不能太好猜
+var WEAK_CODES = ["PASSWORD", "PASSWORD1", "12345678", "123456789", "1234567890", "87654321", "11111111",
+  "00000000", "QWERTYUI", "QWERTYUIOP", "ASDFGHJK", "ABCDEFGH", "ILOVEYOU", "HEYPARTNER", "HEY夥伴請聽我說"];
+function isSequential(c) {
+  if (c.length < 4) return false;
+  var up = true, down = true;
+  for (var i = 1; i < c.length; i++) {
+    var d = c.charCodeAt(i) - c.charCodeAt(i - 1);
+    if (d !== 1) up = false;
+    if (d !== -1) down = false;
+  }
+  return up || down;
+}
+function checkMyCode(raw) {
+  var c = canonCode(raw);
+  if (c.length < 8) return "code_too_short";
+  if (c.length > 40) return "code_too_long";
+  if (/^(.)\1+$/.test(c) || isSequential(c) || WEAK_CODES.indexOf(c) >= 0) return "code_weak";
+  if (/^\d+$/.test(c) && c.length < 10) return "code_digits";
+  var team = prop("TEAM_CODE");
+  if (team && canonCode(team) === c) return "code_is_team";
+  return "";
 }
 function newId() {
   return "FB" + Utilities.formatDate(new Date(), "Asia/Taipei", "yyMMdd") + "-" +
@@ -312,10 +348,17 @@ function submitFeedback(p) {
 
   if (counter(SUBMIT_COUNT_KEY) >= SUBMIT_MAX_PER_WINDOW) return fail("too_many");
 
+  // 個人查詢碼：同仁自己取、可重複使用；沒填就由系統產生一組
+  var myCode = cleanLine(p.myCode, 60);
+  if (myCode) {
+    var bad = checkMyCode(myCode);
+    if (bad) return fail(bad);
+  }
+
   var cfg = getConfig();
   if (!cfg.isOpen) return fail("closed");
 
-  var code = newCode();
+  var code = myCode || newCode();
   var r = withLock(function () {
     var now = nowTw();
     var fb = {
@@ -325,7 +368,7 @@ function submitFeedback(p) {
       createdAt: now, updatedAt: null, ts: Date.now(), rev: 1, sid: sid,
       history: [{ at: now, status: "received" }]
     };
-    dataSheet().appendRow([fb.id, sha256(code), now, JSON.stringify(fb)]);
+    dataSheet().appendRow([fb.id, sha256(canonCode(code)), now, JSON.stringify(fb)]);
     rebuildView();
     return { success: true, fb: fb };
   });
@@ -350,16 +393,15 @@ function checkSubmission(p) {
 function lookupFeedback(p) {
   if (!tokenOk(p.token)) return fail("unauthorized");
   if (counter(LOOKUP_FAIL_KEY) >= LOOKUP_MAX_FAIL) return fail("lookup_locked");
-  var code = normCode(p.code);
-  if (!code) return fail("invalid_code");
-  var h = sha256(code);
-  var rows = allRows();
-  for (var i = 0; i < rows.length; i++) {
-    if (rows[i][1] === h) {
-      var fb = parseRow(rows[i]);
-      if (fb) return { success: true, value: publicView(fb) };
-    }
-  }
+  var raw = cleanLine(p.code, 60);
+  if (canonCode(raw).length < 8) return fail("invalid_code");
+  var hashes = codeHashes(raw);
+  // 個人查詢碼可能對應很多則回饋：全部列出，新的在前
+  var found = allRows().filter(function (r) { return hashes.indexOf(r[1]) >= 0; })
+    .map(parseRow).filter(Boolean)
+    .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); })
+    .map(publicView);
+  if (found.length) return { success: true, value: found };
   bump(LOOKUP_FAIL_KEY, WINDOW_SEC);
   return fail("not_found");
 }

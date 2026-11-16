@@ -29,7 +29,12 @@ const MESSAGES: Record<string, string> = {
   too_many: "現在送出的人有點多，請過幾分鐘再試一次。",
   busy: "伺服器忙碌中，請稍後再按一次送出。",
   unauthorized: "系統設定有誤，暫時無法送出，請告訴管理員。",
-  invalid_code: "查詢碼是 12 碼英數字，請再確認一次。",
+  invalid_code: "查詢碼至少要 8 個字，請再確認一次。",
+  code_too_short: "個人查詢碼至少要 8 個字。",
+  code_too_long: "個人查詢碼最多 40 個字。",
+  code_weak: "這組查詢碼太好猜了（像 12345678、aaaaaaaa），換一句只有你知道的話吧。",
+  code_digits: "純數字的查詢碼至少要 10 碼，也請避免用生日或電話。",
+  code_is_team: "個人查詢碼不能跟通關密語一樣，大家都知道通關密語喔。",
   not_found: "找不到這個查詢碼，請確認有沒有打錯。",
   lookup_locked: "查詢錯誤次數過多，請 10 分鐘後再試。",
   unknown: "網路不太穩，無法確認是否送出成功。內容已幫你保留，請稍後再試一次。",
@@ -46,13 +51,15 @@ export type SubmitResult =
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export async function submitFeedback(
-  input: FeedbackInput, teamCode: string, sid: string, verifyDelayMs = 2000,
+  input: FeedbackInput, teamCode: string, sid: string, myCode = "", verifyDelayMs = 2000,
 ): Promise<SubmitResult> {
   // 注意：參數名稱不能用 "sid" 或 "c"（Apps Script 保留字，會被 Google 直接回 400）
-  const r = await gasPost({
+  const params: Record<string, string> = {
     action: "submitFeedback", submissionId: sid, teamCode,
     data: JSON.stringify(input), token: WRITE_TOKEN || "",
-  });
+  };
+  if (myCode.trim()) params.myCode = myCode.trim();
+  const r = await gasPost(params);
   if (r.status === "ok") return { status: "ok", code: r.data.code };
   if (r.status === "fail") return { status: "fail", code: r.error, message: apiMessage(r.error) };
 
@@ -65,11 +72,16 @@ export async function submitFeedback(
   return { status: "fail", code: "unknown", message: apiMessage("unknown") };
 }
 
-export type LookupResult = { ok: true; value: PublicFeedback } | { ok: false; message: string };
+export type LookupResult = { ok: true; value: PublicFeedback[] } | { ok: false; message: string };
 
+/** 用查詢碼查詢；個人查詢碼可能對應多則回饋，一律回傳陣列（新的在前） */
 export async function lookupFeedback(code: string): Promise<LookupResult> {
-  const r = await gasPost({ action: "lookupFeedback", code, token: WRITE_TOKEN || "" });
-  if (r.status === "ok") return { ok: true, value: r.data.value };
+  const r = await gasPost({ action: "lookupFeedback", code: code.trim(), token: WRITE_TOKEN || "" });
+  if (r.status === "ok") {
+    const v = r.data.value;
+    // 舊版後端回傳單一物件，新版回傳陣列
+    return { ok: true, value: Array.isArray(v) ? v : v ? [v] : [] };
+  }
   if (r.status === "fail") return { ok: false, message: apiMessage(r.error) };
   return { ok: false, message: "無法連線至伺服器，請稍後再試。" };
 }
@@ -93,6 +105,12 @@ export function saveCode(item: SavedCode): void {
 export function forgetCode(code: string): void {
   try { localStorage.setItem(SAVED_KEY, JSON.stringify(loadSavedCodes().filter(x => x.code !== code))); } catch {}
 }
+
+// ── 個人查詢碼（同仁自己取、每次送出沿用；勾選才記在這台裝置）──────────────────
+const MY_CODE_KEY = "hp_my_code";
+export function loadMyCode(): string { try { return localStorage.getItem(MY_CODE_KEY) || ""; } catch { return ""; } }
+export function rememberMyCode(v: string): void { try { localStorage.setItem(MY_CODE_KEY, v); } catch {} }
+export function forgetMyCode(): void { try { localStorage.removeItem(MY_CODE_KEY); } catch {} }
 
 const TEAM_KEY = "hp_team_code";
 export function loadTeamCode(): string { try { return localStorage.getItem(TEAM_KEY) || ""; } catch { return ""; } }

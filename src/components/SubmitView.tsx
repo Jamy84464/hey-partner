@@ -1,8 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, type CSSProperties } from "react";
 import { C, T, S, R, E, CATEGORIES, CAT, RESPONDS, CONTENT_MAX, CONTENT_MIN } from "../constants";
 import { Btn, Card, StepTitle, Field, TextInput, TextArea, Modal } from "./ui";
-import { submitFeedback, loadTeamCode, rememberTeamCode, forgetTeamCode, saveCode } from "../utils/api";
-import { makeSid } from "../utils/helpers";
+import {
+  submitFeedback, apiMessage, loadTeamCode, rememberTeamCode, forgetTeamCode, saveCode,
+  loadMyCode, rememberMyCode, forgetMyCode,
+} from "../utils/api";
+import { makeSid, canonCode, checkMyCode } from "../utils/helpers";
 import { showToast } from "../utils/toast";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { CategoryKey, RespondKey, PublicConfig } from "../types";
@@ -12,7 +15,7 @@ interface Props {
   onTrack: (code?: string) => void;
 }
 
-type Errors = Partial<Record<"category" | "content" | "respond" | "name" | "contact" | "team", string>>;
+type Errors = Partial<Record<"category" | "content" | "respond" | "name" | "contact" | "team" | "myCode", string>>;
 
 export function SubmitView({ config, onTrack }: Props) {
   const isMobile = useIsMobile();
@@ -27,9 +30,15 @@ export function SubmitView({ config, onTrack }: Props) {
   const [teamCode, setTeamCode] = useState(savedTeam);
   const [editTeam, setEditTeam] = useState(!savedTeam);
   const [rememberTeam, setRememberTeam] = useState(true);
+  // 個人查詢碼：自己取一句、每次送出沿用，用它就能一次看到自己所有的回饋
+  const [savedMy] = useState(loadMyCode);
+  const [myCode, setMyCode] = useState(savedMy);
+  const [editMy, setEditMy] = useState(!savedMy);
+  const [rememberMy, setRememberMy] = useState(true);
+  const [showMy, setShowMy] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [sending, setSending] = useState(false);
-  const [done, setDone] = useState<{ code: string; category: CategoryKey; at: string } | null>(null);
+  const [done, setDone] = useState<{ code: string; category: CategoryKey; at: string; personal: boolean } | null>(null);
   const sidRef = useRef<string>("");
   const step2Ref = useRef<HTMLDivElement>(null);
 
@@ -54,6 +63,10 @@ export function SubmitView({ config, onTrack }: Props) {
     if (identified && needContact && !name.trim()) e.name = "請留下我們可以怎麼稱呼你";
     if (identified && needContact && !contact.trim()) e.contact = "請留下 Email、分機或 LINE，方便我們聯絡你";
     if (!teamCode.trim()) e.team = "請輸入同仁通關密語";
+    if (myCode.trim()) {
+      const bad = checkMyCode(myCode, teamCode);
+      if (bad) e.myCode = apiMessage(bad);
+    }
     return e;
   };
 
@@ -72,15 +85,19 @@ export function SubmitView({ config, onTrack }: Props) {
       category: category as CategoryKey, content: content.trim(), respond: respond as RespondKey,
       meetWith: respond === "meet" ? meetWith.trim() : "",
       name: identified ? name.trim() : "", contact: identified ? contact.trim() : "",
-    }, teamCode.trim(), sidRef.current);
+    }, teamCode.trim(), sidRef.current, myCode.trim());
     setSending(false);
 
     if (r.status === "ok") {
       if (rememberTeam) rememberTeamCode(teamCode.trim()); else forgetTeamCode();
-      setDone({ code: r.code, category: category as CategoryKey, at: new Date().toLocaleDateString("zh-TW") });
+      // 以伺服器回傳的碼為準：舊版後端不認得個人查詢碼時，會改給一組系統產生的碼
+      const personal = !!myCode.trim() && canonCode(r.code) === canonCode(myCode);
+      if (personal) { if (rememberMy) rememberMyCode(myCode.trim()); else forgetMyCode(); }
+      setDone({ code: r.code, category: category as CategoryKey, at: new Date().toLocaleDateString("zh-TW"), personal });
       return;
     }
     if (r.code === "bad_team_code") { setErrors({ team: r.message }); setEditTeam(true); }
+    if (r.code.startsWith("code_")) { setErrors({ myCode: r.message }); setEditMy(true); }
     showToast(r.message);
     // 伺服器明確拒絕：下一次送出是新的請求；收不到回應（unknown）時保留 sid 讓伺服器去重
     if (r.code !== "unknown") sidRef.current = "";
@@ -258,6 +275,35 @@ export function SubmitView({ config, onTrack }: Props) {
 
           {/* ── 送出 ─────────────────────────────────────────────── */}
           <Card style={{ background: `linear-gradient(135deg, ${C.primarySoft}, #fdf3e7)`, border: "none" }}>
+            {editMy ? (
+              <>
+                <Field label="我的個人查詢碼（選填）" error={errors.myCode}
+                  hint={myCode.trim()
+                    ? (checkMyCode(myCode, teamCode) ? `⚠ ${apiMessage(checkMyCode(myCode, teamCode))}` : "✓ 可以使用。之後每次送出都用這組，就能一次看到你所有的回饋")
+                    : "自己取一句至少 8 個字、只有你知道的話（不要用名字、生日或通關密語）。留白的話，系統會給你一組這次專用的查詢碼"}>
+                  <TextInput type={showMy ? "text" : "password"} value={myCode} maxLength={60} autoComplete="off"
+                    onChange={v => { setMyCode(v); setErrors(e => ({ ...e, myCode: undefined })); }}
+                    placeholder="例如：週五的拿鐵要加燕麥奶" invalid={!!errors.myCode} />
+                </Field>
+                {myCode.trim() && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: S[3], flexWrap: "wrap", marginTop: -S[2], marginBottom: S[4] }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: S[2], fontSize: T.sm, color: C.sub, cursor: "pointer" }}>
+                      <input type="checkbox" checked={rememberMy} onChange={e => setRememberMy(e.target.checked)} style={{ width: 18, height: 18, accentColor: C.primary }} />
+                      在這台裝置記住我的查詢碼（公用電腦請取消勾選）
+                    </label>
+                    <button type="button" onClick={() => setShowMy(v => !v)} style={linkBtn}>{showMy ? "隱藏查詢碼" : "顯示查詢碼"}</button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: S[3], marginBottom: S[3], fontSize: T.sm, color: C.sub, flexWrap: "wrap" }}>
+                <span>🔐 已記住你的個人查詢碼，這則會跟你之前的回饋放在一起</span>
+                <span style={{ display: "flex", gap: S[3] }}>
+                  <button type="button" onClick={() => setEditMy(true)} style={linkBtn}>更換</button>
+                  <button type="button" onClick={() => { forgetMyCode(); setMyCode(""); setEditMy(true); }} style={linkBtn}>這次不用</button>
+                </span>
+              </div>
+            )}
             {editTeam ? (
               <Field label="同仁通關密語" required error={errors.team} hint="確認你是自己人用的，不會跟你的回饋綁在一起">
                 <TextInput type="password" value={teamCode} onChange={v => { setTeamCode(v); setErrors(e => ({ ...e, team: undefined })); }}
@@ -266,7 +312,7 @@ export function SubmitView({ config, onTrack }: Props) {
             ) : (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: S[3], marginBottom: S[4], fontSize: T.sm, color: C.sub }}>
                 <span>🔑 已記住通關密語</span>
-                <button type="button" onClick={() => setEditTeam(true)} style={{ background: "none", border: "none", color: C.primary, fontWeight: 700, cursor: "pointer", fontSize: T.sm, textDecoration: "underline" }}>更換</button>
+                <button type="button" onClick={() => setEditTeam(true)} style={linkBtn}>更換</button>
               </div>
             )}
             {editTeam && (
@@ -282,14 +328,16 @@ export function SubmitView({ config, onTrack }: Props) {
         </div>
       )}
 
-      {done && <SuccessModal code={done.code} category={done.category} at={done.at} onAgain={reset} onTrack={() => { const c = done.code; reset(); onTrack(c); }} />}
+      {done && <SuccessModal code={done.code} category={done.category} at={done.at} personal={done.personal} onAgain={reset} onTrack={() => { const c = done.code; reset(); onTrack(c); }} />}
     </div>
   );
 }
 
+const linkBtn: CSSProperties = { background: "none", border: "none", color: C.primary, fontWeight: 700, cursor: "pointer", fontSize: T.sm, textDecoration: "underline", padding: 0 };
+
 // ── 送出成功：查詢碼像一張小票根 ─────────────────────────────────────────────
-function SuccessModal({ code, category, at, onAgain, onTrack }: {
-  code: string; category: CategoryKey; at: string; onAgain: () => void; onTrack: () => void;
+function SuccessModal({ code, category, at, personal, onAgain, onTrack }: {
+  code: string; category: CategoryKey; at: string; personal: boolean; onAgain: () => void; onTrack: () => void;
 }) {
   const [remember, setRemember] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -298,7 +346,7 @@ function SuccessModal({ code, category, at, onAgain, onTrack }: {
     catch { showToast("複製失敗，請手動記下查詢碼"); }
   };
   const finish = (next: () => void) => {
-    if (remember) saveCode({ code, at, category });
+    if (remember && !personal) saveCode({ code, at, category });
     next();
   };
   return (
@@ -313,21 +361,26 @@ function SuccessModal({ code, category, at, onAgain, onTrack }: {
         position: "relative", margin: `${S[5]}px 0`, padding: `${S[4]}px ${S[4]}px`,
         background: "#fff8e8", borderRadius: R.lg, border: "2px dashed #e8cf96", textAlign: "center",
       }}>
-        <div style={{ fontSize: T.xs, color: "#8a6914", fontWeight: 700, letterSpacing: ".1em" }}>你的查詢碼</div>
+        <div style={{ fontSize: T.xs, color: "#8a6914", fontWeight: 700, letterSpacing: ".1em" }}>{personal ? "你的個人查詢碼" : "你的查詢碼"}</div>
         <div aria-label={`查詢碼 ${code.split("").join(" ")}`} style={{
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "clamp(1.1rem, 6vw, 1.6rem)", fontWeight: 700,
-          letterSpacing: ".08em", whiteSpace: "nowrap", color: C.ink, margin: `${S[2]}px 0 ${S[3]}px`, userSelect: "all",
+          fontFamily: personal ? "inherit" : "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          fontSize: personal ? T.lg : "clamp(1.1rem, 6vw, 1.6rem)", fontWeight: 700,
+          letterSpacing: personal ? ".02em" : ".08em", whiteSpace: personal ? "normal" : "nowrap", wordBreak: "break-all",
+          color: C.ink, margin: `${S[2]}px 0 ${S[3]}px`, userSelect: "all",
         }}>{code}</div>
         <Btn small variant="ghost" onClick={copy} style={{ background: C.paper }}>{copied ? "✓ 已複製" : "📋 複製查詢碼"}</Btn>
         <p style={{ fontSize: T.xs, color: "#8a6914", lineHeight: 1.7, marginTop: S[3] }}>
-          這組碼只會顯示這一次，請截圖或記下來。<br />之後可以用它查看處理進度與我們的回覆。
+          {personal
+            ? <>這則回饋已經跟你的個人查詢碼放在一起。<br />之後用這組碼，就能一次看到你所有的回饋與我們的回覆。</>
+            : <>這組碼只會顯示這一次，請截圖或記下來。<br />之後可以用它查看處理進度與我們的回覆。</>}
         </p>
       </div>
 
-      <label style={{ display: "flex", alignItems: "flex-start", gap: S[2], fontSize: T.sm, color: C.sub, marginBottom: S[5], cursor: "pointer", lineHeight: 1.6 }}>
+      {!personal && <label style={{ display: "flex", alignItems: "flex-start", gap: S[2], fontSize: T.sm, color: C.sub, marginBottom: S[5], cursor: "pointer", lineHeight: 1.6 }}>
         <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width: 18, height: 18, marginTop: 2, accentColor: C.primary, flexShrink: 0 }} />
         <span>在這台裝置記住這組查詢碼<br /><span style={{ fontSize: T.xs, color: C.muted }}>只存查詢碼，不存內容；公用電腦請不要勾選</span></span>
-      </label>
+      </label>}
+      {personal && <div style={{ height: S[2] }} />}
 
       <div style={{ display: "flex", gap: S[3], flexDirection: "column" }}>
         <Btn full onClick={() => finish(onTrack)}>查看處理進度</Btn>

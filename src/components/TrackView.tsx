@@ -1,48 +1,62 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type CSSProperties } from "react";
 import { C, T, S, R, E, CAT, RESP, STATUSES, STAT } from "../constants";
 import { Btn, Card, TextInput, Pill } from "./ui";
-import { lookupFeedback, loadSavedCodes, forgetCode, type SavedCode } from "../utils/api";
-import { formatCode, isCompleteCode } from "../utils/helpers";
+import { lookupFeedback, loadSavedCodes, forgetCode, loadMyCode, forgetMyCode, type SavedCode } from "../utils/api";
+import { canonCode, shortDate } from "../utils/helpers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { PublicFeedback } from "../types";
 
 export function TrackView({ initialCode }: { initialCode?: string }) {
   const isMobile = useIsMobile();
-  const [code, setCode] = useState(initialCode ? formatCode(initialCode) : "");
+  const [myCode, setMyCode] = useState(loadMyCode);
+  // 從送出成功畫面點進來時帶入那組碼；否則先帶入這台裝置記住的個人查詢碼
+  const [code, setCode] = useState(initialCode || myCode);
+  const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<PublicFeedback | null>(null);
+  const [results, setResults] = useState<PublicFeedback[] | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [saved, setSaved] = useState<SavedCode[]>(loadSavedCodes);
 
   const search = useCallback(async (c: string) => {
-    const v = formatCode(c);
-    setCode(v);
-    if (!isCompleteCode(v)) { setError("查詢碼是 12 碼英數字（例如 ABCD-2345-WXYZ）"); return; }
-    setLoading(true); setError(""); setResult(null);
-    const r = await lookupFeedback(v);
+    setCode(c);
+    if (canonCode(c).length < 8) { setError("查詢碼至少要 8 個字"); return; }
+    setLoading(true); setError(""); setResults(null);
+    const r = await lookupFeedback(c);
     setLoading(false);
-    if (r.ok) setResult(r.value); else setError(r.message);
+    if (r.ok) { setResults(r.value); setOpenId(r.value[0]?.id ?? null); } else setError(r.message);
   }, []);
 
   useEffect(() => { if (initialCode) search(initialCode); }, [initialCode, search]);
+
+  const isMine = !!myCode && canonCode(code) === canonCode(myCode);
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: `0 ${S[4]}px ${S[8]}px` }}>
       <Card className="fu" style={{ padding: isMobile ? S[4] : S[5] }}>
         <h2 className="display" style={{ fontSize: T.lg, fontWeight: 400 }}>🔍 查看處理進度</h2>
-        <p style={{ fontSize: T.sm, color: C.muted, marginTop: S[1], marginBottom: S[4] }}>輸入送出時拿到的查詢碼</p>
+        <p style={{ fontSize: T.sm, color: C.muted, marginTop: S[1], marginBottom: S[4] }}>
+          輸入你的個人查詢碼，或送出時系統給你的查詢碼
+        </p>
         <form onSubmit={e => { e.preventDefault(); search(code); }} style={{ display: "flex", gap: S[2], flexDirection: isMobile ? "column" : "row" }}>
           <label htmlFor="track-code" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>查詢碼</label>
-          <TextInput id="track-code" value={code} onChange={v => { setCode(formatCode(v)); setError(""); }}
-            placeholder="XXXX-XXXX-XXXX" autoComplete="off" maxLength={14} invalid={!!error}
-            style={{ fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: T.md, letterSpacing: ".1em", textAlign: "center", flex: 1 }} />
+          <TextInput id="track-code" type={show ? "text" : "password"} value={code} onChange={v => { setCode(v); setError(""); }}
+            placeholder="查詢碼" autoComplete="off" maxLength={60} invalid={!!error}
+            style={{ fontSize: T.md, flex: 1 }} />
           <Btn type="submit" disabled={loading} style={{ minHeight: 48 }}>{loading ? "查詢中…" : "查詢"}</Btn>
         </form>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: S[3], flexWrap: "wrap", marginTop: S[2], fontSize: T.xs, color: C.muted }}>
+          <span>{isMine ? "🔐 已帶入這台裝置記住的個人查詢碼" : ""}</span>
+          <span style={{ display: "flex", gap: S[3] }}>
+            <button type="button" onClick={() => setShow(v => !v)} style={linkBtn}>{show ? "隱藏" : "顯示"}查詢碼</button>
+            {isMine && <button type="button" onClick={() => { forgetMyCode(); setMyCode(""); setCode(""); setResults(null); }} style={linkBtn}>不要記住</button>}
+          </span>
+        </div>
         {error && <div role="alert" style={{ color: C.redDark, fontSize: T.sm, marginTop: S[3], fontWeight: 600 }}>⚠ {error}</div>}
 
         {saved.length > 0 && (
           <div style={{ marginTop: S[5], paddingTop: S[4], borderTop: `1px dashed ${C.border}` }}>
-            <div style={{ fontSize: T.xs, color: C.muted, fontWeight: 700, marginBottom: S[2] }}>這台裝置記住的查詢碼</div>
+            <div style={{ fontSize: T.xs, color: C.muted, fontWeight: 700, marginBottom: S[2] }}>這台裝置記住的單次查詢碼</div>
             <div style={{ display: "flex", flexDirection: "column", gap: S[2] }}>
               {saved.map(s => {
                 const cat = CAT[s.category as keyof typeof CAT];
@@ -63,17 +77,49 @@ export function TrackView({ initialCode }: { initialCode?: string }) {
         )}
       </Card>
 
-      {result && <ResultCard fb={result} />}
+      {results && results.length === 1 && <ResultCard fb={results[0]} />}
+      {results && results.length > 1 && (
+        <div className="fu" style={{ marginTop: S[5] }}>
+          <div style={{ fontSize: T.sm, color: C.sub, fontWeight: 700, marginBottom: S[3], paddingLeft: S[1] }}>
+            這組查詢碼共有 {results.length} 則回饋，點一下看詳細狀態
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: S[2] }}>
+            {results.map(fb => {
+              const cat = CAT[fb.category];
+              const st = STAT[fb.status] || STATUSES[0];
+              const open = openId === fb.id;
+              return (
+                <div key={fb.id}>
+                  <button type="button" onClick={() => setOpenId(open ? null : fb.id)} aria-expanded={open} className="lift" style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: S[3], textAlign: "left", cursor: "pointer",
+                    padding: `${S[3]}px ${S[4]}px`, borderRadius: R.lg, color: C.ink,
+                    background: open ? cat.tint : C.paper, border: `2px solid ${open ? cat.color : "transparent"}`, boxShadow: open ? "none" : E[1],
+                  }}>
+                    <span aria-hidden="true" style={{ fontSize: "1.25rem" }}>{cat.emoji}</span>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: T.sm }}>{fb.content}</span>
+                    {fb.reply && <span aria-label="有回覆" title="有回覆">💌</span>}
+                    <Pill color={st.color} tint={st.tint}>{st.emoji} {st.short}</Pill>
+                    <span style={{ fontSize: T.xs, color: C.muted, whiteSpace: "nowrap" }}>{shortDate(fb.createdAt)}</span>
+                  </button>
+                  {open && <ResultCard fb={fb} compact />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ResultCard({ fb }: { fb: PublicFeedback }) {
+const linkBtn: CSSProperties = { background: "none", border: "none", color: C.primary, fontWeight: 700, cursor: "pointer", fontSize: T.xs, textDecoration: "underline", padding: 0 };
+
+function ResultCard({ fb, compact }: { fb: PublicFeedback; compact?: boolean }) {
   const isMobile = useIsMobile();
   const cat = CAT[fb.category];
   const st = STAT[fb.status] || STATUSES[0];
   return (
-    <div className="fu" style={{ marginTop: S[5] }}>
+    <div className="fu" style={{ marginTop: compact ? S[3] : S[5] }}>
       {/* 目前狀態：大卡片 */}
       <div style={{
         borderRadius: R.xl, padding: isMobile ? S[5] : S[6], textAlign: "center",
