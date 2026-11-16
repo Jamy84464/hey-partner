@@ -103,10 +103,10 @@ export const RESP: Record<RespondKey, RespondDef> =
   Object.fromEntries(RESPONDS.map(r => [r.key, r])) as Record<RespondKey, RespondDef>;
 
 export const STATUSES: StatusDef[] = [
-  { key: "received", emoji: "📮", short: "已收到", label: "訊息已經反映成功", color: "#2f5d62", tint: "#e3efec" },
-  { key: "seeded", emoji: "🌱", short: "等待發芽", label: "種子已種下，我們等待發芽", color: "#4f7d3a", tint: "#edf4e6" },
-  { key: "thinking", emoji: "🧠", short: "燒腦中", label: "有難度！燒腦中，請給我們多一些時間努力", color: "#a86a12", tint: "#fbf1dc" },
-  { key: "action", emoji: "⚡", short: "即刻處理", label: "即刻啟動處理", color: "#b85a42", tint: "#fbeae4" },
+  { key: "received", emoji: "📮", short: "已收到", label: "訊息已經反映成功", desc: "你的訊息已經送到負責的夥伴手上，我們會好好看過。", color: "#2f5d62", tint: "#e3efec" },
+  { key: "seeded", emoji: "🌱", short: "等待發芽", label: "種子已種下，我們等待發芽", desc: "這件事我們記下來了，會找合適的時機慢慢推動。", color: "#4f7d3a", tint: "#edf4e6" },
+  { key: "thinking", emoji: "🧠", short: "燒腦中", label: "有難度！燒腦中，請給我們多一些時間努力", desc: "這件事不容易，我們正在想辦法，可能需要多一點時間。", color: "#a86a12", tint: "#fbf1dc" },
+  { key: "action", emoji: "⚡", short: "即刻處理", label: "即刻啟動處理", desc: "這件事我們已經動起來，開始處理了。", color: "#b85a42", tint: "#fbeae4" },
 ];
 export const STAT: Record<StatusKey, StatusDef> =
   Object.fromEntries(STATUSES.map(s => [s.key, s])) as Record<StatusKey, StatusDef>;

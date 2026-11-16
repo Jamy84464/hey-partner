@@ -26,6 +26,8 @@ export interface StatusDef {
   key: StatusKey;
   label: string;
   short: string;
+  /** 給同仁看的白話說明 */
+  desc: string;
   emoji: string;
   color: string;
   tint: string;

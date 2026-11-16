@@ -72,7 +72,6 @@ function ResultCard({ fb }: { fb: PublicFeedback }) {
   const isMobile = useIsMobile();
   const cat = CAT[fb.category];
   const st = STAT[fb.status] || STATUSES[0];
-  const idx = STATUSES.findIndex(s => s.key === fb.status);
   return (
     <div className="fu" style={{ marginTop: S[5] }}>
       {/* 目前狀態：大卡片 */}
@@ -84,26 +83,31 @@ function ResultCard({ fb }: { fb: PublicFeedback }) {
         <div className="display" style={{ fontSize: isMobile ? T.lg : T.xl, color: st.color, marginTop: S[3], lineHeight: 1.45 }}>{st.label}</div>
         <div style={{ fontSize: T.xs, color: C.muted, marginTop: S[2] }}>最後更新：{fb.updatedAt || fb.createdAt}</div>
 
-        {/* 進度條 */}
-        <ol aria-label="處理進度" style={{ listStyle: "none", display: "flex", justifyContent: "space-between", position: "relative", marginTop: S[5], padding: 0 }}>
-          <span aria-hidden="true" style={{ position: "absolute", top: 17, left: "12%", right: "12%", height: 3, background: C.border, borderRadius: 2 }} />
-          <span aria-hidden="true" style={{ position: "absolute", top: 17, left: "12%", width: `${(Math.max(idx, 0) / (STATUSES.length - 1)) * 76}%`, height: 3, background: st.color, borderRadius: 2, transition: "width .5s" }} />
-          {STATUSES.map((s, i) => {
-            const reached = i <= idx;
-            const current = i === idx;
-            return (
-              <li key={s.key} aria-current={current ? "step" : undefined} style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                <span style={{
-                  width: 36, height: 36, borderRadius: R.full, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "1.1rem", background: reached ? C.paper : C.surface,
-                  border: `3px solid ${reached ? s.color : C.border}`, filter: reached ? "none" : "grayscale(1)", opacity: reached ? 1 : .6,
-                  boxShadow: current ? `0 0 0 5px ${s.color}22` : "none",
-                }}>{s.emoji}</span>
-                <span style={{ fontSize: T.xs, fontWeight: current ? 700 : 500, color: reached ? C.ink : C.muted }}>{s.short}</span>
-              </li>
-            );
-          })}
-        </ol>
+        <p style={{ fontSize: T.base, color: C.sub, lineHeight: 1.8, marginTop: S[3] }}>{st.desc}</p>
+        {fb.respond === "ack" && fb.status === "received" && (
+          <p style={{ fontSize: T.sm, color: C.muted, lineHeight: 1.7, marginTop: S[2] }}>你希望我們知道就好，我們收到了 🙂</p>
+        )}
+
+        {/* 四種狀態是不同的回應方式，不是先後順序，所以平排、不畫連接線 */}
+        <div style={{ marginTop: S[5], paddingTop: S[4], borderTop: `1px dashed ${C.border}` }}>
+          <div style={{ fontSize: T.xs, color: C.muted, marginBottom: S[2] }}>我們可能用這幾種方式回應，不一定依序進行</div>
+          <ul aria-label="回應狀態說明" style={{ listStyle: "none", padding: 0, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: S[2] }}>
+            {STATUSES.map(s => {
+              const current = s.key === fb.status;
+              return (
+                <li key={s.key} aria-current={current ? "true" : undefined} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: R.full,
+                  fontSize: T.xs, fontWeight: current ? 700 : 500,
+                  background: current ? s.tint : "transparent", color: current ? s.color : C.muted,
+                  border: `1.5px solid ${current ? s.color : C.border}`,
+                }}>
+                  <span aria-hidden="true" style={{ filter: current ? "none" : "grayscale(1)", opacity: current ? 1 : .55 }}>{s.emoji}</span>
+                  {s.short}{current && <span style={{ fontWeight: 500 }}>（目前）</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </div>
 
       {fb.reply && (
@@ -123,7 +127,7 @@ function ResultCard({ fb }: { fb: PublicFeedback }) {
 
         {fb.history?.length > 1 && (
           <div style={{ marginTop: S[4] }}>
-            <div style={{ fontSize: T.xs, color: C.muted, fontWeight: 700, marginBottom: S[2] }}>狀態紀錄</div>
+            <div style={{ fontSize: T.xs, color: C.muted, fontWeight: 700, marginBottom: S[2] }}>狀態更新紀錄</div>
             <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
               {[...fb.history].reverse().map((h, i) => (
                 <li key={i} style={{ display: "flex", gap: S[2], fontSize: T.sm, color: C.sub }}>
