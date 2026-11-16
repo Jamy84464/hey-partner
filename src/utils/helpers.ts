@@ -102,10 +102,12 @@ export function buildInsights(list: Feedback[]): Insights {
   const byCategory = zero<CategoryKey>(["env", "flow", "team", "up", "vent"]);
   const byStatus = zero<StatusKey>(["received", "seeded", "thinking", "action"]);
   const byRespond = zero<RespondKey>(["ack", "attention", "reply", "meet"]);
+  // 用 hasOwnProperty 而不是 in：資料裡若有 "constructor" 之類的值，in 會誤判成存在
+  const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
   list.forEach(f => {
-    if (f.category in byCategory) byCategory[f.category]++;
-    if (f.status in byStatus) byStatus[f.status]++;
-    if (f.respond in byRespond) byRespond[f.respond]++;
+    if (own(byCategory, f.category)) byCategory[f.category]++;
+    if (own(byStatus, f.status)) byStatus[f.status]++;
+    if (own(byRespond, f.respond)) byRespond[f.respond]++;
   });
   const months = countBy(list, f => [monthOf(f.createdAt)]).sort((a, b) => a.key.localeCompare(b.key));
   return {

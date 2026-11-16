@@ -111,6 +111,14 @@ export const STATUSES: StatusDef[] = [
 export const STAT: Record<StatusKey, StatusDef> =
   Object.fromEntries(STATUSES.map(s => [s.key, s])) as Record<StatusKey, StatusDef>;
 
+// 安全查表：只認自己定義的 key，資料裡出現未知或 constructor/__proto__ 之類的值時
+// 退回預設值，不會讓畫面當掉（後端也會擋，這裡是第二道防線）
+const own = (o: object, k: unknown): k is string => typeof k === "string" && Object.prototype.hasOwnProperty.call(o, k);
+const OTHER_CAT: CategoryDef = { key: "env", emoji: "📝", title: "其他", desc: "", placeholder: "", tags: [], color: "#52606d", tint: "#f6f2ec" };
+export const catOf = (k: unknown): CategoryDef => (own(CAT, k) ? CAT[k as CategoryKey] : OTHER_CAT);
+export const statOf = (k: unknown): StatusDef => (own(STAT, k) ? STAT[k as StatusKey] : STATUSES[0]);
+export const respOf = (k: unknown): RespondDef => (own(RESP, k) ? RESP[k as RespondKey] : RESPONDS[0]);
+
 export const CONTENT_MAX = 2000;
 export const CONTENT_MIN = 5;
 

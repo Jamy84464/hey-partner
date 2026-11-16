@@ -1,5 +1,5 @@
 import { useState, useRef, type CSSProperties } from "react";
-import { C, T, S, R, E, CATEGORIES, CAT, RESPONDS, CONTENT_MAX, CONTENT_MIN } from "../constants";
+import { C, T, S, R, E, CATEGORIES, catOf, RESPONDS, CONTENT_MAX, CONTENT_MIN } from "../constants";
 import { Btn, Card, StepTitle, Field, TextInput, TextArea, Modal } from "./ui";
 import {
   submitFeedback, apiMessage, loadTeamCode, rememberTeamCode, forgetTeamCode, saveCode,
@@ -44,7 +44,7 @@ export function SubmitView({ config, onTrack }: Props) {
 
   const needContact = respond === "reply" || respond === "meet";
   const identified = needContact || showName;
-  const cat = category ? CAT[category] : null;
+  const cat = category ? catOf(category) : null;
   const accent = cat?.color || C.primary;
 
   const pickCategory = (k: CategoryKey) => {

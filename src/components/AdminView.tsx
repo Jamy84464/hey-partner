@@ -1,13 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { C, T, S, R, E } from "../constants";
 import { Btn, Card, Field, TextInput } from "./ui";
 import { verifyAdmin, setAdminCredential, clearAdminCredential, adminList } from "../utils/storage";
+import { showToast } from "../utils/toast";
 import { InboxTab, type InboxFilter } from "./admin/InboxTab";
 import { InsightsTab } from "./admin/InsightsTab";
 import { SettingsTab } from "./admin/SettingsTab";
 import type { Feedback } from "../types";
 
 type Tab = "inbox" | "insights" | "settings";
+
+/** 後台閒置多久自動登出（共用電腦離開座位時，避免別人直接看到所有回饋） */
+export const ADMIN_IDLE_MS = 20 * 60 * 1000;
 
 export function AdminView() {
   const [authed, setAuthed] = useState(false);
@@ -26,6 +30,23 @@ export function AdminView() {
   }, []);
 
   useEffect(() => { if (authed) reload(); }, [authed, reload]);
+
+  // 閒置自動登出：有操作就重新計時，超過 ADMIN_IDLE_MS 沒動作就清掉密碼與資料
+  const lastActive = useRef(Date.now());
+  useEffect(() => {
+    if (!authed) return;
+    lastActive.current = Date.now();
+    const touch = () => { lastActive.current = Date.now(); };
+    const events = ["mousemove", "keydown", "click", "touchstart", "scroll"] as const;
+    events.forEach(ev => window.addEventListener(ev, touch, { passive: true }));
+    const timer = setInterval(() => {
+      if (Date.now() - lastActive.current > ADMIN_IDLE_MS) {
+        clearAdminCredential(); setAuthed(false); setList(null);
+        showToast("閒置超過 20 分鐘，已自動登出後台");
+      }
+    }, 30 * 1000);
+    return () => { events.forEach(ev => window.removeEventListener(ev, touch)); clearInterval(timer); };
+  }, [authed]);
   // 離開後台時清掉記憶體裡的密碼
   useEffect(() => () => clearAdminCredential(), []);
 

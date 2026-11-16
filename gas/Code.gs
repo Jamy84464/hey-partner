@@ -80,6 +80,9 @@ function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 function prop(name) { return PropertiesService.getScriptProperties().getProperty(name) || ""; }
+// 白名單檢查只認物件「自己的」key：不然 constructor、__proto__、toString 這類
+// JavaScript 內建屬性也會被當成合法值（例如類別填 "constructor" 會通過檢查）
+function has(obj, k) { return typeof k === "string" && Object.prototype.hasOwnProperty.call(obj, k); }
 function fail(code, extra) {
   var o = { success: false, error: code };
   if (extra) for (var k in extra) o[k] = extra[k];
@@ -144,8 +147,24 @@ function newCode() {
 function canonCode(v) {
   return String(v == null ? "" : v).normalize("NFKC").replace(/[\s\-_]/g, "").toUpperCase();
 }
-// 一組查詢碼可能對應的雜湊：新版存 sha256(標準形式)；
-// 舊版（自訂查詢碼上線前）存 sha256("ABCD-2345-WXYZ")，查詢時一併比對
+// ── 查詢碼雜湊（試算表 B 欄）──────────────────────────────────────────────
+// 現行格式「s2:鹽:雜湊」，雜湊 = sha256(鹽 + 標準形式)，鹽每列隨機。
+// 加鹽是為了匿名性：個人查詢碼會重複使用，若不加鹽，同一個人的每則回饋 B 欄都一樣，
+// 有試算表權限的人就能把「匿名的那幾則」跟「留了名字的那一則」連在一起。
+function newCodeHash(code) {
+  var salt = Utilities.getUuid().replace(/-/g, "").slice(0, 16);
+  return "s2:" + salt + ":" + sha256(salt + canonCode(code));
+}
+// 這一列的 B 欄是否符合這組查詢碼（也相容加鹽前的舊格式）
+function codeMatches(stored, raw, legacy) {
+  stored = String(stored || "");
+  if (stored.indexOf("s2:") === 0) {
+    var parts = stored.split(":");
+    return parts.length === 3 && sha256(parts[1] + canonCode(raw)) === parts[2];
+  }
+  return legacy.indexOf(stored) >= 0;
+}
+// 加鹽前的舊格式：sha256(標準形式) 或更早的 sha256("ABCD-2345-WXYZ")
 function codeHashes(v) {
   var c = canonCode(v);
   if (!c) return [];
@@ -339,8 +358,8 @@ function submitFeedback(p) {
     name:     cleanLine(input.name, 30),
     contact:  cleanLine(input.contact, 100)
   };
-  if (!CATEGORIES[f.category]) return fail("invalid_category");
-  if (!RESPONDS[f.respond]) return fail("invalid_respond");
+  if (!has(CATEGORIES, f.category)) return fail("invalid_category");
+  if (!has(RESPONDS, f.respond)) return fail("invalid_respond");
   if (f.content.length < 5) return fail("too_short");
   // 希望專人回覆或面談：一定要留下怎麼聯絡
   if ((f.respond === "reply" || f.respond === "meet") && (!f.name || !f.contact)) return fail("need_contact");
@@ -368,7 +387,7 @@ function submitFeedback(p) {
       createdAt: now, updatedAt: null, ts: Date.now(), rev: 1, sid: sid,
       history: [{ at: now, status: "received" }]
     };
-    dataSheet().appendRow([fb.id, sha256(canonCode(code)), now, JSON.stringify(fb)]);
+    dataSheet().appendRow([fb.id, newCodeHash(code), now, JSON.stringify(fb)]);
     rebuildView();
     return { success: true, fb: fb };
   });
@@ -395,9 +414,9 @@ function lookupFeedback(p) {
   if (counter(LOOKUP_FAIL_KEY) >= LOOKUP_MAX_FAIL) return fail("lookup_locked");
   var raw = cleanLine(p.code, 60);
   if (canonCode(raw).length < 8) return fail("invalid_code");
-  var hashes = codeHashes(raw);
+  var legacy = codeHashes(raw);
   // 個人查詢碼可能對應很多則回饋：全部列出，新的在前
-  var found = allRows().filter(function (r) { return hashes.indexOf(r[1]) >= 0; })
+  var found = allRows().filter(function (r) { return codeMatches(r[1], raw, legacy); })
     .map(parseRow).filter(Boolean)
     .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); })
     .map(publicView);
@@ -430,7 +449,7 @@ function adminUpdate(p) {
     var now = nowTw();
     var prevStatus = fb.status, prevReply = fb.reply || "";
     if (patch.status !== undefined) {
-      if (!STATUSES[patch.status]) return fail("invalid_status");
+      if (!has(STATUSES, patch.status)) return fail("invalid_status");
       fb.status = patch.status;
     }
     if (patch.tags !== undefined)     fb.tags = cleanList(patch.tags, 20, 20);
@@ -616,6 +635,19 @@ function checkSetup() {
 function resetLocks() {
   CacheService.getScriptCache().removeAll([PW_FAIL_KEY, TEAM_FAIL_KEY, LOOKUP_FAIL_KEY, SUBMIT_COUNT_KEY]);
   Logger.log("已解除所有鎖定");
+}
+
+// 一次性工具：把 B 欄裡「同一個值出現在多列」的情況列出來（加鹽前送出的個人查詢碼）。
+// 舊列沒有原碼無法重新加鹽；在意的話，可以請同仁換一組新的個人查詢碼。
+function reportSharedCodeHashes() {
+  var seen = {}, dup = 0;
+  allRows().forEach(function (r) {
+    var h = String(r[1]);
+    if (h.indexOf("s2:") === 0) return;
+    seen[h] = (seen[h] || 0) + 1;
+  });
+  for (var h in seen) if (seen[h] > 1) dup++;
+  Logger.log(dup ? "有 " + dup + " 組加鹽前的查詢碼被多則回饋共用" : "沒有共用的舊查詢碼");
 }
 
 // 試算表手動改過或壞掉時，從 feedback_data 重建「回饋總表」

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { C, T, S, R, CATEGORIES, CAT, RESPONDS, RESP, STATUSES } from "../../constants";
+import { C, T, S, R, CATEGORIES, catOf, RESPONDS, respOf, STATUSES } from "../../constants";
 import { Card, Pill } from "../ui";
 import { buildInsights, shortDate, type TagInsight } from "../../utils/helpers";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -109,9 +109,9 @@ export function InsightsTab({ list, onDrill }: Props) {
             <div style={{ display: "flex", flexDirection: "column", gap: S[2] }}>
               {ins.needsCare.slice(0, 8).map(f => (
                 <button key={f.id} type="button" onClick={() => onDrill({ q: f.id })} style={{ ...rowBtn, display: "flex", gap: S[2], alignItems: "center", background: C.surface, borderRadius: R.md, padding: `${S[2]}px ${S[3]}px` }}>
-                  <span aria-hidden="true">{CAT[f.category].emoji}</span>
+                  <span aria-hidden="true">{catOf(f.category).emoji}</span>
                   <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: T.sm }}>{f.content}</span>
-                  {f.respond === "meet" && <Pill color={C.coralDark} tint="#fbeae4">{RESP.meet.emoji}{f.meetWith ? ` ${f.meetWith}` : ""}</Pill>}
+                  {f.respond === "meet" && <Pill color={C.coralDark} tint="#fbeae4">{respOf("meet").emoji}{f.meetWith ? ` ${f.meetWith}` : ""}</Pill>}
                   <span style={{ fontSize: T.xs, color: C.muted }}>{shortDate(f.createdAt)}</span>
                 </button>
               ))}
@@ -188,7 +188,7 @@ function RankList({ items, empty, prefix, onClick, badge }: {
           <button key={t.key} type="button" onClick={() => onClick(t.key)} style={rowBtn}>
             <span style={{ display: "flex", alignItems: "center", gap: S[2], fontSize: T.sm, marginBottom: 4 }}>
               <span style={{ fontWeight: 700 }}>{prefix}{t.key}</span>
-              <span style={{ display: "flex", gap: 2 }}>{t.categories.map(c => <span key={c} aria-label={CAT[c].title} style={{ fontSize: T.xs }}>{CAT[c].emoji}</span>)}</span>
+              <span style={{ display: "flex", gap: 2 }}>{t.categories.map(c => <span key={c} aria-label={catOf(c).title} style={{ fontSize: T.xs }}>{catOf(c).emoji}</span>)}</span>
               {b && <Pill color={C.coralDark} tint="#fbeae4">{b}</Pill>}
               <span style={{ flex: 1 }} />
               <span style={{ fontSize: T.xs, color: C.muted }}>{t.months} 個月</span>

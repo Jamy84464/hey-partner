@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, type CSSProperties } from "react";
-import { C, T, S, R, E, CAT, RESP, STATUSES, STAT } from "../constants";
+import { C, T, S, R, E, catOf, respOf, STATUSES, statOf } from "../constants";
 import { Btn, Card, TextInput, Pill } from "./ui";
 import { lookupFeedback, loadSavedCodes, forgetCode, loadMyCode, forgetMyCode, type SavedCode } from "../utils/api";
 import { canonCode, shortDate } from "../utils/helpers";
@@ -59,7 +59,7 @@ export function TrackView({ initialCode }: { initialCode?: string }) {
             <div style={{ fontSize: T.xs, color: C.muted, fontWeight: 700, marginBottom: S[2] }}>這台裝置記住的單次查詢碼</div>
             <div style={{ display: "flex", flexDirection: "column", gap: S[2] }}>
               {saved.map(s => {
-                const cat = CAT[s.category as keyof typeof CAT];
+                const cat = catOf(s.category);
                 return (
                   <div key={s.code} style={{ display: "flex", alignItems: "center", gap: S[2], background: C.surface, borderRadius: R.md, padding: `${S[2]}px ${S[3]}px` }}>
                     <button type="button" onClick={() => search(s.code)} style={{ flex: 1, display: "flex", alignItems: "center", gap: S[2], background: "none", border: "none", cursor: "pointer", textAlign: "left", minHeight: 36, color: C.ink }}>
@@ -85,8 +85,8 @@ export function TrackView({ initialCode }: { initialCode?: string }) {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: S[2] }}>
             {results.map(fb => {
-              const cat = CAT[fb.category];
-              const st = STAT[fb.status] || STATUSES[0];
+              const cat = catOf(fb.category);
+              const st = statOf(fb.status);
               const open = openId === fb.id;
               return (
                 <div key={fb.id}>
@@ -116,8 +116,8 @@ const linkBtn: CSSProperties = { background: "none", border: "none", color: C.pr
 
 function ResultCard({ fb, compact }: { fb: PublicFeedback; compact?: boolean }) {
   const isMobile = useIsMobile();
-  const cat = CAT[fb.category];
-  const st = STAT[fb.status] || STATUSES[0];
+  const cat = catOf(fb.category);
+  const st = statOf(fb.status);
   return (
     <div className="fu" style={{ marginTop: compact ? S[3] : S[5] }}>
       {/* 目前狀態：大卡片 */}
@@ -166,7 +166,7 @@ function ResultCard({ fb, compact }: { fb: PublicFeedback; compact?: boolean }) 
       <Card style={{ marginTop: S[4] }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: S[2], marginBottom: S[3] }}>
           <Pill color={cat.color} tint={cat.tint}>{cat.emoji} {cat.title}</Pill>
-          <Pill color={C.sub} tint={C.surface}>{RESP[fb.respond]?.emoji} {RESP[fb.respond]?.label}{fb.meetWith ? `（${fb.meetWith}）` : ""}</Pill>
+          <Pill color={C.sub} tint={C.surface}>{respOf(fb.respond).emoji} {respOf(fb.respond).label}{fb.meetWith ? `（${fb.meetWith}）` : ""}</Pill>
         </div>
         <div style={{ fontSize: T.xs, color: C.muted, marginBottom: S[2] }}>你在 {fb.createdAt} 說：</div>
         <div style={{ fontSize: T.base, lineHeight: 1.85, whiteSpace: "pre-wrap", background: C.surface, borderRadius: R.md, padding: S[4] }}>{fb.content}</div>
@@ -177,8 +177,8 @@ function ResultCard({ fb, compact }: { fb: PublicFeedback; compact?: boolean }) 
             <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
               {[...fb.history].reverse().map((h, i) => (
                 <li key={i} style={{ display: "flex", gap: S[2], fontSize: T.sm, color: C.sub }}>
-                  <span aria-hidden="true">{STAT[h.status]?.emoji}</span>
-                  <span style={{ flex: 1 }}>{STAT[h.status]?.label}</span>
+                  <span aria-hidden="true">{statOf(h.status).emoji}</span>
+                  <span style={{ flex: 1 }}>{statOf(h.status).label}</span>
                   <span style={{ fontSize: T.xs, color: C.muted, whiteSpace: "nowrap" }}>{h.at}</span>
                 </li>
               ))}

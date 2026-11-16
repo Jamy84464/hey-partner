@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import App from "./App";
 import { canonCode, checkMyCode, buildInsights, monthOf } from "./utils/helpers";
 import { submitFeedback, lookupFeedback } from "./utils/api";
@@ -73,6 +73,13 @@ describe("helpers", () => {
     expect(ins.needsCare.map(f => f.id)).toEqual(["3"]); // 已結案的不算
     expect(ins.byCategory.vent).toBe(1);
     expect(ins.untagged).toBe(2);
+  });
+
+  test("buildInsights 不會被 constructor 之類的怪值影響", () => {
+    const ins = buildInsights([fb({ category: "constructor" as any, status: "__proto__" as any })]);
+    expect(Object.values(ins.byCategory).every(n => typeof n === "number")).toBe(true);
+    expect(Object.keys(ins.byCategory)).toEqual(["env", "flow", "team", "up", "vent"]);
+    expect(Object.values(ins.byStatus).reduce((a, b) => a + b, 0)).toBe(0);
   });
 });
 
@@ -235,6 +242,41 @@ describe("前台", () => {
 });
 
 describe("後台", () => {
+  const adminHandler = (list: Feedback[]) => (action: string, p: URLSearchParams) => {
+    if (action === "verifyAdmin") return { success: true, authed: p.get("pw") === "pw" };
+    if (action === "adminList") return { success: true, value: list };
+    return { success: true, value: { isOpen: true, bulletin: "" } };
+  };
+  const login = async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "後台" }));
+    fireEvent.change(await screen.findByLabelText("管理員密碼"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "登入" }));
+  };
+
+  test("資料裡出現 constructor 之類的怪值也不會讓後台當掉", async () => {
+    handler = adminHandler([fb({ id: "BAD", content: "被竄改的資料", category: "constructor" as any, respond: "__proto__" as any, status: "toString" as any })]);
+    await login();
+    fireEvent.click(await screen.findByText("被竄改的資料"));
+    expect(await screen.findByRole("button", { name: "儲存" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /彙整洞察/ }));
+    expect(await screen.findByText("類別分佈")).toBeInTheDocument();
+  });
+
+  test("閒置 20 分鐘自動登出", async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    try {
+      handler = adminHandler([fb({ content: "某則回饋" })]);
+      await login();
+      expect(await screen.findByText("某則回饋")).toBeInTheDocument();
+      act(() => { jest.advanceTimersByTime(21 * 60 * 1000); });
+      expect(await screen.findByLabelText("管理員密碼")).toBeInTheDocument();
+      expect(screen.queryByText("某則回饋")).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test("登入後看到回饋並可改狀態", async () => {
     let list = [fb({ id: "FB1", content: "影印機常卡紙", category: "env" })];
     handler = (action, p) => {

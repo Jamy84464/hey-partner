@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { C, T, S, R, E, CATEGORIES, CAT, RESPONDS, RESP, STATUSES, STAT } from "../../constants";
+import { C, T, S, R, E, CATEGORIES, catOf, RESPONDS, respOf, STATUSES, statOf } from "../../constants";
 import { Btn, Card, Chip, Pill, TextArea, TextInput, Modal } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
 import { adminUpdate, adminDelete } from "../../utils/storage";
@@ -137,8 +137,8 @@ export function InboxTab({ list, onSaved, onDeleted, filter, onFilterUsed }: Pro
 }
 
 function ListItem({ fb, active, onClick }: { fb: Feedback; active: boolean; onClick: () => void }) {
-  const cat = CAT[fb.category];
-  const st = STAT[fb.status];
+  const cat = catOf(fb.category);
+  const st = statOf(fb.status);
   const urgent = fb.respond === "meet" || fb.category === "vent";
   return (
     <button type="button" onClick={onClick} aria-expanded={active} className="lift" style={{
@@ -152,7 +152,7 @@ function ListItem({ fb, active, onClick }: { fb: Feedback; active: boolean; onCl
         <span style={{ display: "flex", alignItems: "center", gap: S[2], flexWrap: "wrap", marginBottom: 6 }}>
           <span aria-hidden="true">{cat.emoji}</span>
           <Pill color={st.color} tint={st.tint}>{st.emoji} {st.short}</Pill>
-          {fb.respond !== "ack" && <Pill color={urgent ? C.coralDark : C.sub} tint={urgent ? "#fbeae4" : C.surface}>{RESP[fb.respond].emoji} {fb.respond === "meet" ? "想面談" : fb.respond === "reply" ? "想要回覆" : "請關注"}</Pill>}
+          {fb.respond !== "ack" && <Pill color={urgent ? C.coralDark : C.sub} tint={urgent ? "#fbeae4" : C.surface}>{respOf(fb.respond).emoji} {fb.respond === "meet" ? "想面談" : fb.respond === "reply" ? "想要回覆" : "請關注"}</Pill>}
           {fb.archived && <Pill color={C.muted} tint={C.surface}>已結案</Pill>}
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: T.xs, color: C.muted, whiteSpace: "nowrap" }}>{shortDate(fb.createdAt)}</span>
@@ -173,7 +173,7 @@ function ListItem({ fb, active, onClick }: { fb: Feedback; active: boolean; onCl
 function FeedbackEditor({ fb, onSaved, onDeleted, onClose }: {
   fb: Feedback; onSaved: (fb: Feedback) => void; onDeleted: (id: string) => void; onClose: () => void;
 }) {
-  const cat = CAT[fb.category];
+  const cat = catOf(fb.category);
   const narrow = useIsMobile(560);
   const [status, setStatus] = useState<StatusKey>(fb.status);
   const [tags, setTags] = useState<string[]>(fb.tags || []);
@@ -243,7 +243,7 @@ function FeedbackEditor({ fb, onSaved, onDeleted, onClose }: {
 
       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: `6px ${S[3]}px`, fontSize: T.sm, marginTop: S[3], color: C.sub }}>
         <span style={{ color: C.muted }}>希望回應</span>
-        <span style={{ fontWeight: 700, color: fb.respond === "meet" ? C.coralDark : C.ink }}>{RESP[fb.respond].emoji} {RESP[fb.respond].label}{fb.meetWith && `（對象：${fb.meetWith}）`}</span>
+        <span style={{ fontWeight: 700, color: fb.respond === "meet" ? C.coralDark : C.ink }}>{respOf(fb.respond).emoji} {respOf(fb.respond).label}{fb.meetWith && `（對象：${fb.meetWith}）`}</span>
         <span style={{ color: C.muted }}>送出者</span>
         <span>{fb.name ? <>{fb.name}{fb.contact && <span style={{ color: C.muted }}>・{fb.contact}</span>}</> : "🫥 匿名"}</span>
         <span style={{ color: C.muted }}>時間</span>
